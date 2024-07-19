@@ -35,10 +35,10 @@ USE [master]
       SELECT @hexvalue = @charvalue
   END
   go
-  IF OBJECT_ID ('sp_help_revlogin') IS NOT NULL
-  DROP PROCEDURE sp_help_revlogin
+  IF OBJECT_ID ('sp_revlogin') IS NOT NULL
+  DROP PROCEDURE sp_revlogin
   GO
-  CREATE PROCEDURE [dbo].[sp_help_revlogin]   
+  CREATE PROCEDURE [dbo].[sp_revlogin]   
   (
       @login_name sysname = NULL 
   )
@@ -93,7 +93,7 @@ USE [master]
                 RETURN -1
           END
 
-          SET @tmpstr = '/* sp_help_revlogin script '
+          SET @tmpstr = '/* sp_revlogin script '
           PRINT @tmpstr
 
           SET @tmpstr = '** Generated ' + CONVERT (varchar, GETDATE()) + ' on ' + @@SERVERNAME + ' */'
@@ -163,46 +163,24 @@ USE [master]
               SET @tmpstr = @tmpstr + '; ALTER LOGIN ' + QUOTENAME( @name ) + ' DISABLE'
           END 
 
-          SET @Prefix = '
-          EXEC master.dbo.sp_addsrvrolemember @loginame='''
-
-          SET @tmpstrRole=''
-
-          SELECT @tmpstrRole = @tmpstrRole
-              + CASE WHEN sysadmin        = 1 THEN @Prefix + [LoginName] + ''', @rolename=''sysadmin'''        ELSE '' END
-              + CASE WHEN securityadmin   = 1 THEN @Prefix + [LoginName] + ''', @rolename=''securityadmin'''   ELSE '' END
-              + CASE WHEN serveradmin     = 1 THEN @Prefix + [LoginName] + ''', @rolename=''serveradmin'''     ELSE '' END
-              + CASE WHEN setupadmin      = 1 THEN @Prefix + [LoginName] + ''', @rolename=''setupadmin'''      ELSE '' END
-              + CASE WHEN processadmin    = 1 THEN @Prefix + [LoginName] + ''', @rolename=''processadmin'''    ELSE '' END
-              + CASE WHEN diskadmin       = 1 THEN @Prefix + [LoginName] + ''', @rolename=''diskadmin'''       ELSE '' END
-              + CASE WHEN dbcreator       = 1 THEN @Prefix + [LoginName] + ''', @rolename=''dbcreator'''       ELSE '' END
-              + CASE WHEN bulkadmin       = 1 THEN @Prefix + [LoginName] + ''', @rolename=''bulkadmin'''       ELSE '' END
-            FROM (
-                      SELECT CONVERT(VARCHAR(100),SUSER_SNAME(sid)) AS [LoginName],
-                              sysadmin,
-                              securityadmin,
-                              serveradmin,
-                              setupadmin,
-                              processadmin,
-                              diskadmin,
-                              dbcreator,
-                              bulkadmin
-                      FROM sys.syslogins
-                      WHERE (       sysadmin<>0
-                              OR    securityadmin<>0
-                              OR    serveradmin<>0
-                              OR    setupadmin <>0
-                              OR    processadmin <>0
-                              OR    diskadmin<>0
-                              OR    dbcreator<>0
-                              OR    bulkadmin<>0
-                          ) 
-                          AND name=@name 
-                ) L 
-
-              PRINT @tmpstr
-              PRINT @tmpstrRole
-              PRINT 'END'
+            BEGIN
+            SELECT @tmpstr = @tmpstr + '; ALTER SERVER ROLE [' + a.name + '] ADD MEMBER [' + c.name + ']'
+            FROM sys.server_principals a
+            INNER JOIN sys.server_role_members b
+            ON a.principal_id = b.role_principal_id
+            INNER JOIN sys.server_principals c
+            ON c.principal_id = b.member_principal_id
+            WHERE c.name = @name;
+            END
+            BEGIN
+            SELECT
+            @tmpstr = @tmpstr  + '; ' + sr.state_desc  + ' ' + sr.permission_name  + ' TO [' + sp.name + ']'
+            FROM sys.server_permissions sr
+            INNER JOIN sys.server_principals sp
+            ON sr.grantee_principal_id  = sp.principal_id
+            WHERE [sp].[type] IN ('S', 'U', 'G') AND sp.name = @name;
+            END
+            PRINT @tmpstr
           END 
           FETCH NEXT FROM login_curs INTO @SID_varbinary, @name, @type, @is_disabled, @defaultdb, @hasaccess, @denylogin, @defaultlanguage 
       END
